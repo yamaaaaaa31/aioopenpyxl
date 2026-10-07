@@ -1,0 +1,87 @@
+[project]
+name = "aioopenpyxl"
+version = "0.1.0"
+description = "Asynchronous wrapper around openpyxl for asyncio and trio, built on anyio"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "yamaaaaaa31", email = "143375737+yamaaaaaa31@users.noreply.github.com" }
+]
+requires-python = ">=3.10"
+keywords = ["openpyxl", "asyncio", "trio", "anyio", "excel", "xlsx", "async"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Framework :: AnyIO",
+    "Framework :: Trio",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Free Threading :: 3 - Stable",
+    "Topic :: Office/Business :: Financial :: Spreadsheet",
+    "Typing :: Typed",
+]
+dependencies = [
+    # anyio.Lock(fast_acquire=True) needs 4.5
+    "anyio>=4.5",
+    "openpyxl>=3.1",
+    # The generated public signatures reference stub-only names from types-openpyxl
+    # (_CellGetValue, _CellSetValue, _VisibilityType, _SerialisableTreeElement ...);
+    # 3.1.5.20250506 is the first release that defines all of them.
+    "types-openpyxl>=3.1.5.20250506",
+    # The generator re-emits @deprecated
+    "typing_extensions>=4.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/yamaaaaaa31/aioopenpyxl"
+Documentation = "https://github.com/yamaaaaaa31/aioopenpyxl#readme"
+Repository = "https://github.com/yamaaaaaa31/aioopenpyxl"
+Issues = "https://github.com/yamaaaaaa31/aioopenpyxl/issues"
+Changelog = "https://github.com/yamaaaaaa31/aioopenpyxl/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-timeout>=2.3",
+    "pytest-randomly>=3.15",
+    "trio>=0.27",
+    "ruff>=0.9",
+    "ty>=0.0.1",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 60
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Generated `.pyi` shims consist of `from openpyxl.x import *` only
+"*.pyi" = ["F401", "F403"]
+
+[tool.ty.environment]
+python-version = "3.10"
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src", "tests"]
+strict = false
+warn_unused_ignores = true

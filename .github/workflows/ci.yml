@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.14t"   # free-threaded build
+          - os: windows-latest
+            python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.12"
+    env:
+      # Overrides .python-version (3.14) so that every matrix entry really runs
+      # on its own interpreter, both for `uv sync` and for `uv run`.
+      UV_PYTHON: ${{ matrix.python-version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Test
+        run: |
+          uv run python -VV
+          uv run pytest -q
+
+  lowest-deps:
+    name: test (lowest direct dependencies, 3.10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.10"
+      # Resolves against the lower bounds of pyproject.toml (anyio 4.5,
+      # openpyxl 3.1.0, trio 0.27 ...). Set as an env var, not a `uv sync`
+      # flag: `uv run` would otherwise see a resolution-mode mismatch with the
+      # lockfile and silently re-sync to the highest versions. The rewritten
+      # uv.lock is discarded with the runner.
+      UV_RESOLUTION: lowest-direct
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - name: Install (lowest direct dependencies)
+        run: uv sync
+      - name: Test
+        run: |
+          uv run python -VV
+          uv pip list
+          uv run pytest -q
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Ruff
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Type check (ty, target 3.10)
+        run: uv run ty check src tests
+      - name: Type check (mypy)
+        run: uv run mypy
+      - name: Generated forwarders and .pyi shims are up to date
+        run: |
+          uv run python tools/gen_proxies.py
+          uv run ruff format src/aioopenpyxl/
+          git diff --exit-code -- src/aioopenpyxl/
+          # Newly generated files that are not committed show up as untracked.
+          untracked="$(git status --porcelain --untracked-files=all -- src/aioopenpyxl/)"
+          if [ -n "$untracked" ]; then
+            echo "::error::Generated files differ from the committed ones:"
+            echo "$untracked"
+            exit 1
+          fi

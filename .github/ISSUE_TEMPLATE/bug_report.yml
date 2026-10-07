@@ -1,0 +1,62 @@
+name: Bug report
+description: Something does not work as documented.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please fill in what you can;
+        a minimal reproducible example helps most.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: A short, self-contained script. If a specific .xlsx file is needed, describe how to build one with openpyxl.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback or output
+      render: text
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Async backend
+      multiple: true
+      options:
+        - asyncio
+        - trio
+        - both / not sure
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "`uv run python -c 'import sys, anyio, openpyxl, aioopenpyxl; print(sys.version, anyio.__version__, openpyxl.__version__, aioopenpyxl.__version__)'`"
+      placeholder: "Python 3.12.x, anyio 4.x, openpyxl 3.1.x, aioopenpyxl 0.x"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04 / macOS 15 / Windows 11"
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues for this problem.
+          required: true
+        - label: The same code works with plain, synchronous openpyxl (or the bug is clearly in the wrapper).
