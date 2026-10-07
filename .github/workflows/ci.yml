@@ -100,3 +100,19 @@ jobs:
             echo "$untracked"
             exit 1
           fi
+
+  # Single required status check for branch protection: green only when every
+  # job above succeeded (skipped or cancelled jobs count as failures).
+  ci:
+    name: ci
+    needs: [test, lowest-deps, lint]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check that every job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          echo "$RESULTS" | grep -q '"result": *"\(failure\|cancelled\|skipped\)"' && exit 1 || exit 0
