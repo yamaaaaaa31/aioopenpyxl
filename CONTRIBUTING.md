@@ -137,3 +137,12 @@ section for the released version into the GitHub Release notes, so keep it self-
 
 This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). By participating you
 agree to abide by it.
+
+## Branch protection and releases
+
+`main` is protected by a repository ruleset: changes land only through pull requests, the
+aggregate `ci` status check must pass, history is linear and force pushes are rejected. Pull
+requests from forks run CI only after a maintainer approves the workflow run. Release tags
+(`v*`) can be created only by maintainers; pushing one triggers `release.yml`, which builds,
+smoke-tests and publishes to PyPI through the `pypi` environment after a maintainer approves
+the deployment.
