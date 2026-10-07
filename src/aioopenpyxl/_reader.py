@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Coroutine, Generator
 from contextlib import AbstractAsyncContextManager
 from os import PathLike
 from types import TracebackType
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any, Literal, overload
 
 import anyio
 import openpyxl
@@ -16,13 +16,18 @@ from anyio import CapacityLimiter
 
 from ._executor import Runner, runner_for
 from ._workbook import Workbook
+from ._worksheet import WS_co
+
+if TYPE_CHECKING:
+    from openpyxl.worksheet._read_only import ReadOnlyWorksheet
+    from openpyxl.worksheet.worksheet import Worksheet
 
 __all__ = ["LoadWorkbookContextManager", "load_workbook", "load_workbook_bytes"]
 
 
 class LoadWorkbookContextManager(
-    Awaitable[Workbook],
-    AbstractAsyncContextManager[Workbook],
+    Awaitable[Workbook[WS_co]],
+    AbstractAsyncContextManager[Workbook[WS_co]],
 ):
     """Return type of :func:`load_workbook`.
 
@@ -34,19 +39,23 @@ class LoadWorkbookContextManager(
 
         async with aioopenpyxl.load_workbook("in.xlsx") as wb:
             ...
+
+    The type parameter is the raw worksheet type of the loaded workbook:
+    ``Workbook[ReadOnlyWorksheet]`` for ``read_only=True``,
+    ``Workbook[Worksheet]`` otherwise.
     """
 
     __slots__ = ("_coro", "_wb")
 
-    def __init__(self, coro: Coroutine[Any, Any, Workbook]) -> None:
+    def __init__(self, coro: Coroutine[Any, Any, Workbook[WS_co]]) -> None:
         self._coro = coro
-        self._wb: Workbook | None = None
+        self._wb: Workbook[WS_co] | None = None
 
-    def __await__(self) -> Generator[Any, None, Workbook]:
+    def __await__(self) -> Generator[Any, None, Workbook[WS_co]]:
         self._wb = yield from self._coro.__await__()
         return self._wb
 
-    async def __aenter__(self) -> Workbook:
+    async def __aenter__(self) -> Workbook[WS_co]:
         self._wb = await self._coro
         return self._wb
 
@@ -67,7 +76,7 @@ async def _open(
     filename: str | PathLike[str] | IO[bytes],
     limiter: CapacityLimiter | None,
     kwargs: dict[str, Any],
-) -> Workbook:
+) -> Workbook[Any]:
     # The load runs under the workbook's future Runner so that a native
     # asyncio cancellation waits for the thread; a workbook that was produced
     # but has no owner any more is closed instead of leaking its archive.
@@ -90,6 +99,45 @@ async def _open(
     return Workbook._from_runner(wb, runner)
 
 
+@overload
+def load_workbook(
+    filename: str | PathLike[str] | IO[bytes],
+    read_only: Literal[False] = False,
+    keep_vba: bool = False,
+    data_only: bool = False,
+    keep_links: bool = True,
+    rich_text: bool = False,
+    *,
+    limiter: CapacityLimiter | None = None,
+) -> LoadWorkbookContextManager[Worksheet]: ...
+
+
+@overload
+def load_workbook(
+    filename: str | PathLike[str] | IO[bytes],
+    read_only: Literal[True],
+    keep_vba: bool = False,
+    data_only: bool = False,
+    keep_links: bool = True,
+    rich_text: bool = False,
+    *,
+    limiter: CapacityLimiter | None = None,
+) -> LoadWorkbookContextManager[ReadOnlyWorksheet]: ...
+
+
+@overload
+def load_workbook(
+    filename: str | PathLike[str] | IO[bytes],
+    read_only: bool,
+    keep_vba: bool = False,
+    data_only: bool = False,
+    keep_links: bool = True,
+    rich_text: bool = False,
+    *,
+    limiter: CapacityLimiter | None = None,
+) -> LoadWorkbookContextManager[Worksheet | ReadOnlyWorksheet]: ...
+
+
 def load_workbook(
     filename: str | PathLike[str] | IO[bytes],
     read_only: bool = False,
@@ -99,12 +147,14 @@ def load_workbook(
     rich_text: bool = False,
     *,
     limiter: CapacityLimiter | None = None,
-) -> LoadWorkbookContextManager:
+) -> LoadWorkbookContextManager[Any]:
     """Open an ``.xlsx`` file without blocking the event loop.
 
     Accepts the same arguments as :func:`openpyxl.load_workbook` plus an
     optional ``limiter`` (an :class:`anyio.CapacityLimiter`).  The result can be
-    awaited directly or used with ``async with`` (which closes the workbook on exit).
+    awaited directly or used with ``async with`` (which closes the workbook on
+    exit).  The workbook is typed by ``read_only``: ``Workbook[ReadOnlyWorksheet]``
+    for ``read_only=True``, ``Workbook[Worksheet]`` otherwise.
     """
     kwargs: dict[str, Any] = {
         "read_only": read_only,
@@ -116,6 +166,45 @@ def load_workbook(
     return LoadWorkbookContextManager(_open(filename, limiter, kwargs))
 
 
+@overload
+def load_workbook_bytes(
+    data: bytes | bytearray | memoryview,
+    read_only: Literal[False] = False,
+    keep_vba: bool = False,
+    data_only: bool = False,
+    keep_links: bool = True,
+    rich_text: bool = False,
+    *,
+    limiter: CapacityLimiter | None = None,
+) -> LoadWorkbookContextManager[Worksheet]: ...
+
+
+@overload
+def load_workbook_bytes(
+    data: bytes | bytearray | memoryview,
+    read_only: Literal[True],
+    keep_vba: bool = False,
+    data_only: bool = False,
+    keep_links: bool = True,
+    rich_text: bool = False,
+    *,
+    limiter: CapacityLimiter | None = None,
+) -> LoadWorkbookContextManager[ReadOnlyWorksheet]: ...
+
+
+@overload
+def load_workbook_bytes(
+    data: bytes | bytearray | memoryview,
+    read_only: bool,
+    keep_vba: bool = False,
+    data_only: bool = False,
+    keep_links: bool = True,
+    rich_text: bool = False,
+    *,
+    limiter: CapacityLimiter | None = None,
+) -> LoadWorkbookContextManager[Worksheet | ReadOnlyWorksheet]: ...
+
+
 def load_workbook_bytes(
     data: bytes | bytearray | memoryview,
     read_only: bool = False,
@@ -125,7 +214,7 @@ def load_workbook_bytes(
     rich_text: bool = False,
     *,
     limiter: CapacityLimiter | None = None,
-) -> LoadWorkbookContextManager:
+) -> LoadWorkbookContextManager[Any]:
     """Open an ``.xlsx`` held in memory (an S3 object, an upload body ...).
 
     Same as :func:`load_workbook` but takes the file content as bytes.

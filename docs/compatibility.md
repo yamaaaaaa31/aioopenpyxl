@@ -64,11 +64,37 @@ generated, typed members exist statically (a typo on `ws.tilte` is a type error,
 The `__getattr__` fallbacks are hidden from type checkers for that reason. `read_rows` and
 `iter_rows` / `iter_cols` have overloads for literal and `bool` `values_only` (keyword or
 positional); rows of read-only sheets are typed as containing `ReadOnlyCell` / `EmptyCell` next
-to `Cell` / `MergedCell`. `run(fn)` types `fn` as receiving the raw openpyxl object
-(`Callable[[openpyxl.Workbook], R]`,
-`Callable[[Worksheet | ReadOnlyWorksheet | WriteOnlyWorksheet], R]`). Descriptor-typed stub
-attributes (`Typed[PageMargins, ...]`, `Set[_VisibilityType]`, `Alias`) are exposed as the value
-types they produce, exactly as on the raw openpyxl class. The package ships a `py.typed` marker.
+to `Cell` / `MergedCell`. Note that `read_rows` defaults to `values_only=True` (a bulk read is
+almost always after the values) where openpyxl's `iter_rows` defaults to `False`.
+Descriptor-typed stub attributes (`Typed[PageMargins, ...]`, `Set[_VisibilityType]`, `Alias`) are
+exposed as the value types they produce, exactly as on the raw openpyxl class. The package ships
+a `py.typed` marker.
+
+### Worksheet kinds
+
+`Workbook`, `AsyncWorksheet` and `LoadWorkbookContextManager` are generic in the raw worksheet
+type, which is fixed by where the workbook comes from:
+
+| Factory | Type |
+| --- | --- |
+| `Workbook()`, `Workbook(write_only=False)` | `Workbook[Worksheet]` |
+| `Workbook(write_only=True)` | `Workbook[WriteOnlyWorksheet]` |
+| `load_workbook(...)`, `load_workbook_bytes(...)` | `Workbook[Worksheet]` |
+| `load_workbook(..., read_only=True)` | `Workbook[ReadOnlyWorksheet]` |
+| a plain `bool` for `write_only` / `read_only` | the union of the two possible kinds |
+| `Workbook.wrap(raw)` | plain `Workbook` (a raw workbook does not say); `Workbook[Worksheet].wrap(raw)` when you know |
+
+`wb.active`, `wb["Sheet"]`, `wb.worksheets`, `wb.create_sheet()` and iteration hand out
+`AsyncWorksheet[...]` of that type, `ws.wrapped` is that type and `ws.run(fn)` types `fn` as
+`Callable[[Worksheet], R]` (or `ReadOnlyWorksheet`, `WriteOnlyWorksheet`), so a helper written
+against the concrete openpyxl class is accepted without a cast. `wb.run(fn)` takes
+`Callable[[openpyxl.Workbook], R]` as before.
+
+The parameter is covariant and defaults to the union of the three classes: a plain `Workbook` or
+`AsyncWorksheet` annotation means "any kind" and accepts every precise one, so existing
+annotations keep working (`wb.worksheets` is typed as a `Sequence` for the same reason). A
+subclass declared as `class MyWorkbook(Workbook)` is a `Workbook` of any kind; declare it as
+`class MyWorkbook(Workbook[Worksheet])` to keep the precise type.
 
 ## Private attributes
 
@@ -102,10 +128,11 @@ assignment `obj.name = value` is resolved in this order:
 | `load_workbook(...)` | `await load_workbook(...)` or `async with load_workbook(...) as wb` |
 | `load_workbook(io.BytesIO(data))` | `await load_workbook_bytes(data)` |
 | `wb.save(f)`, `wb.close()` | `await wb.save(f)`, `await wb.to_bytes()`, `await wb.close()` |
+| `wb.close()` at the end of the workbook's life | `async with wb:` / `async with load_workbook(...) as wb:` closes the workbook and, for `keep_vba=True`, the in-memory `vba_archive` copy that openpyxl leaves open (its finaliser can otherwise fail at interpreter shutdown); `await wb.close()` alone is exactly `wb.close()` |
 | `for row in ws.iter_rows()` / `ws.rows` / `ws.values` / `ws.columns` / `for row in ws` | `async for` versions (chunked); `iter_rows` / `iter_cols` gain `chunk_size=` and `prefetch=` |
 | `for row in ws` (synchronous) | `TypeError`: there is no synchronous iteration; use `async for row in ws` or `ws.wrapped` |
 | `ws.append(row)` | `await ws.append(row)`; plus `await ws.append_rows(rows)` |
 | `ws.calculate_dimension()` | `await ws.calculate_dimension(force=False)` |
 | `WriteOnlyWorksheet.close()` | `await ws.close()` |
 | `ws["A1"]`, `ws.cell(1, 1)` on a read-only sheet | raise `BlockingCallError`; use `await ws.fetch("A1")`, `await ws.read_rows(...)`, `await ws.run(...)` |
-| – | `await ws.read_rows(...)`, `await ws.fetch(key)`, `await x.run(fn)`, `x.wrapped`, `ws.is_read_only`, `ws.is_write_only` |
+| – | `await ws.read_rows(...)` (defaults to `values_only=True`, unlike `iter_rows`), `await ws.fetch(key)`, `await x.run(fn)`, `x.wrapped`, `ws.is_read_only`, `ws.is_write_only` |

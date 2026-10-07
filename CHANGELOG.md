@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-08
+
+### Added
+
+- `Workbook`, `AsyncWorksheet` and `LoadWorkbookContextManager` are generic in the raw worksheet
+  type, fixed by where the workbook comes from: `Workbook()` is a `Workbook[Worksheet]`,
+  `Workbook(write_only=True)` a `Workbook[WriteOnlyWorksheet]`, `load_workbook(...,
+  read_only=True)` yields a `Workbook[ReadOnlyWorksheet]`. Sheets, `wrapped` and the `run(fn)`
+  callback are typed accordingly, so a helper written for `Worksheet` no longer needs a cast.
+  Type-only and backwards compatible: the parameter is covariant and a plain `Workbook` /
+  `AsyncWorksheet` annotation still means any kind (`wb.worksheets` is now typed as a
+  `Sequence`). `Workbook.wrap` and `async with wb` return `Self`.
+
+### Fixed
+
+- Leaving `async with wb:` / `async with load_workbook(...)` for a `keep_vba=True` workbook also
+  closes the in-memory `vba_archive` copy that openpyxl leaves open; its finaliser could
+  otherwise fail at interpreter shutdown with `ValueError: I/O operation on closed file`.
+  `await wb.close()` is unchanged and still matches `openpyxl.Workbook.close`.
+
+### Documentation
+
+- `read_rows` defaults to `values_only=True` (openpyxl's `iter_rows` defaults to `False`); this is
+  now stated in its docstring and in the compatibility table.
+
 ## [0.1.0] - 2026-10-08
 
 Initial release.
@@ -35,5 +60,6 @@ Initial release.
 - Subclasses of the wrappers can keep attributes of their own.
 - Supports CPython 3.10 to 3.14, including the free-threaded 3.14t build.
 
-[Unreleased]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/yamaaaaaa31/aioopenpyxl/releases/tag/v0.1.0

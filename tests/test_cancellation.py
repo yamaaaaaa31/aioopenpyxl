@@ -141,6 +141,17 @@ async def test_cancelled_scope_still_closes_the_archive_on_exit(sample_xlsx: Pat
     assert cast(Any, holder["wb"].wrapped)._archive.fp is None
 
 
+async def test_cancelled_scope_still_closes_the_vba_archive_on_exit(sample_xlsx: Path) -> None:
+    holder: dict[str, aioopenpyxl.Workbook] = {}
+    with anyio.move_on_after(0.05) as scope:
+        async with aioopenpyxl.load_workbook(sample_xlsx, keep_vba=True) as wb:
+            holder["wb"] = wb
+            await anyio.sleep(10)
+    assert scope.cancelled_caught
+    vba_archive = holder["wb"].wrapped.vba_archive
+    assert vba_archive is not None and vba_archive.fp is None
+
+
 async def test_cancelled_scope_still_closes_the_archive_for_workbook_aexit(
     sample_xlsx: Path,
 ) -> None:

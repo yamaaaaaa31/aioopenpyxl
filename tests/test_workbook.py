@@ -12,6 +12,8 @@ import openpyxl
 import pytest
 from openpyxl.chart import BarChart, Reference
 from openpyxl.chartsheet import Chartsheet
+from openpyxl.worksheet._write_only import WriteOnlyWorksheet
+from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.xml.functions import Element, fromstring
 
 import aioopenpyxl
@@ -37,6 +39,55 @@ async def test_load_workbook_as_context_manager_closes_archive(sample_xlsx: Path
         archive = cast(Any, wb.wrapped)._archive  # private openpyxl state
         assert archive.fp is not None
     assert archive.fp is None  # zipfile closed by wb.close()
+
+
+async def test_aexit_closes_the_vba_archive_copy(sample_xlsx: Path) -> None:
+    # ``keep_vba=True`` makes openpyxl keep an append-mode ZipFile over a
+    # BytesIO that it never closes; its finaliser can then fail noisily at
+    # interpreter shutdown.  Leaving the block closes it.
+    async with aioopenpyxl.load_workbook(sample_xlsx, keep_vba=True) as wb:
+        vba_archive = wb.wrapped.vba_archive
+        assert vba_archive is not None and vba_archive.fp is not None
+    assert vba_archive.fp is None
+
+
+async def test_close_keeps_the_vba_archive_like_openpyxl(sample_xlsx: Path) -> None:
+    # ``close()`` alone is exactly ``openpyxl.Workbook.close``: the copy stays
+    # readable, so a save after ``close()`` still works as it does in openpyxl.
+    wb = await aioopenpyxl.load_workbook(sample_xlsx, keep_vba=True)
+    await wb.close()
+    vba_archive = wb.wrapped.vba_archive
+    assert vba_archive is not None and vba_archive.fp is not None
+    assert len(await wb.to_bytes()) > 0
+    async with wb:
+        pass
+    assert vba_archive.fp is None
+
+
+async def test_aexit_without_vba_archive_is_unchanged(sample_xlsx: Path) -> None:
+    async with aioopenpyxl.load_workbook(sample_xlsx) as wb:
+        assert wb.wrapped.vba_archive is None
+    async with aioopenpyxl.Workbook() as created:
+        assert created.wrapped.vba_archive is None
+
+
+def test_subscripted_wrappers_construct_at_runtime() -> None:
+    # ``Workbook[Worksheet]()`` goes through ``typing``'s generic alias, which
+    # tries to set ``__orig_class__`` on the slotted, ``__setattr__``-guarded
+    # instance; that must stay harmless.
+    wb = Workbook[Worksheet]()
+    assert isinstance(wb, Workbook)
+    assert type(wb) is Workbook
+    ws = wb.active
+    assert isinstance(ws, AsyncWorksheet)
+    write_only = Workbook[WriteOnlyWorksheet](write_only=True)
+    assert write_only.write_only is True
+    wrapped = Workbook[Worksheet].wrap(openpyxl.Workbook())
+    assert isinstance(wrapped, Workbook)
+    raw_ws = openpyxl.Workbook().active
+    assert raw_ws is not None
+    assert AsyncWorksheet[Worksheet](raw_ws).wrapped is raw_ws
+    assert aioopenpyxl.AsyncWorkbook[Worksheet] is not None
 
 
 async def test_workbook_sheet_management() -> None:
@@ -202,7 +253,7 @@ def test_workbook_wrap_keeps_the_raw_workbook() -> None:
 
 def test_passing_a_raw_workbook_to_the_constructor_is_rejected() -> None:
     with pytest.raises(TypeError, match=r"Workbook\.wrap"):
-        Workbook(openpyxl.Workbook())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        Workbook(openpyxl.Workbook())  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
 
 
 def test_workbook_subclass_works() -> None:

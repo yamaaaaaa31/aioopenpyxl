@@ -166,7 +166,7 @@ def test_module_level_names_mirror_openpyxl() -> None:
     assert aioopenpyxl.open is aioopenpyxl.load_workbook
     assert aioopenpyxl.LXML == openpyxl.LXML
     assert aioopenpyxl.DEFUSEDXML == openpyxl.DEFUSEDXML
-    assert aioopenpyxl.__version__ == "0.1.0"
+    assert aioopenpyxl.__version__ == "0.1.1"
     assert aioopenpyxl.Workbook is not openpyxl.Workbook
     # ``__getattr__`` is runtime-only (hidden from type checkers), hence getattr().
     name = "no_such_thing"
