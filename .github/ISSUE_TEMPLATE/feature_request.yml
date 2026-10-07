@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest an addition or a change to the public API or its behaviour.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        aioopenpyxl aims to expose openpyxl's API without blocking the event loop and
+        without breaking openpyxl's thread-safety assumptions. It does not aim to be
+        faster than openpyxl. Proposals are judged against that goal.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that is awkward or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API or behaviour
+      description: Show how the code would look. Mention the openpyxl member(s) involved, if any.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: For example `run(...)`, the `wrapped` escape hatch, or doing it with plain openpyxl.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues for this request.
+          required: true

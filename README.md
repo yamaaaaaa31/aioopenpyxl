@@ -83,6 +83,10 @@ Keep `chunk_size` at 256 or more (each chunk is one thread round trip); for larg
 - **`import aioopenpyxl as openpyxl` keeps the helpers synchronous.** `aioopenpyxl.styles`,
   `aioopenpyxl.workbook.Workbook` ... are openpyxl's own modules; only the top-level `Workbook`,
   `load_workbook` and `open` are asynchronous.
+- **The guard covers the wrappers, not the objects they hand out.** A `Cell` from `ws["A1"]`,
+  a `Font`, a `ColumnDimension` or `cell.parent` is a plain openpyxl object; mutating it while an
+  `await` on the same workbook is pending races with the thread. Finish or await the operation
+  first, or do such edits inside `run(...)`.
 - **`wb.wrapped` / `ws.wrapped` are unguarded**: the raw openpyxl objects, no busy check. Keep
   blocking calls on them inside `run(...)`.
 
