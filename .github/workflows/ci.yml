@@ -34,7 +34,7 @@ jobs:
       # on its own interpreter, both for `uv sync` and for `uv run`.
       UV_PYTHON: ${{ matrix.python-version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
@@ -58,7 +58,7 @@ jobs:
       # uv.lock is discarded with the runner.
       UV_RESOLUTION: lowest-direct
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
