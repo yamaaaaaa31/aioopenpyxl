@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/yamaaaaaa31/aioopenpyxl/actions/workflows/ci.yml/badge.svg)](https://github.com/yamaaaaaa31/aioopenpyxl/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/aioopenpyxl.svg)](https://pypi.org/project/aioopenpyxl/)
+[![Downloads](https://static.pepy.tech/badge/aioopenpyxl)](https://pepy.tech/project/aioopenpyxl)
 [![Python versions](https://img.shields.io/pypi/pyversions/aioopenpyxl.svg)](https://pypi.org/project/aioopenpyxl/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
