@@ -102,8 +102,11 @@ Keep `chunk_size` at 256 or more (each chunk is one thread round trip); for larg
 | `ws["A1"]` on a read-only sheet | `BlockingCallError`; use `await ws.fetch("A1")` |
 | – | `await ws.read_rows(...)`, `await x.run(fn)`, `x.wrapped`, `limiter=` |
 
-Every other public member is forwarded with its typed openpyxl signature; the full table and the
-typing, sub-module and subclass rules are in [docs/compatibility.md](docs/compatibility.md).
+Every other public member is forwarded with its typed openpyxl signature. `Workbook` and
+`AsyncWorksheet` are generic in the kind of worksheet (`Workbook()` is a `Workbook[Worksheet]`,
+`load_workbook(..., read_only=True)` yields a `Workbook[ReadOnlyWorksheet]`), so `ws.run(fn)`
+accepts a callback written for the concrete openpyxl class. The full table and the typing,
+sub-module and subclass rules are in [docs/compatibility.md](docs/compatibility.md).
 
 ## Development
 

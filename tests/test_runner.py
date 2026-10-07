@@ -383,8 +383,8 @@ async def test_prefetch_producers_respect_a_shared_limiter(shared: bool) -> None
         results.append(rows)
 
     async with anyio.create_task_group() as tg:
-        for ws in sheets:
-            tg.start_soon(consume, ws)
+        for sheet in sheets:
+            tg.start_soon(consume, sheet)
     assert results == [[(i,) for i in range(40)]] * 4
     if shared:
         # One token: one producer parsing at a time, even across four workbooks.
@@ -392,8 +392,8 @@ async def test_prefetch_producers_respect_a_shared_limiter(shared: bool) -> None
         assert limiter is not None and limiter.borrowed_tokens == 0
     else:
         assert parsers.peak >= 1
-    for ws in sheets:
-        assert ws._runner.busy is False
+    for sheet in sheets:
+        assert sheet._runner.busy is False
     assert not prefetch_threads()
 
 

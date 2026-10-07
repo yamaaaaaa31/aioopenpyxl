@@ -36,12 +36,14 @@ import itertools
 import queue
 import threading
 from collections.abc import AsyncGenerator, Callable, Iterable, Iterator
-from typing import TYPE_CHECKING, Any, Literal, NoReturn, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Generic, Literal, NoReturn, cast, overload
 
 import anyio
 from openpyxl.chartsheet.chartsheet import Chartsheet
 from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 from openpyxl.worksheet._write_only import WriteOnlyWorksheet
+from openpyxl.worksheet.worksheet import Worksheet
+from typing_extensions import TypeVar
 
 from ._base import GuardedProxy
 from ._errors import BlockingCallError, WorkbookBusyError
@@ -53,11 +55,9 @@ if TYPE_CHECKING:
     from openpyxl.cell.cell import Cell
     from openpyxl.cell.read_only import EmptyCell, ReadOnlyCell
     from openpyxl.descriptors.serialisable import _SerialisableTreeElement
-    from openpyxl.worksheet.worksheet import Worksheet
 
     from ._workbook import AsyncWorkbook
 
-    RawWorksheet = Worksheet | ReadOnlyWorksheet | WriteOnlyWorksheet
     # Regular sheets yield Cell / MergedCell, read-only sheets ReadOnlyCell / EmptyCell.
     CellRow = tuple[_CellOrMergedCell | ReadOnlyCell | EmptyCell, ...]
     ValueRow = tuple[_CellGetValue, ...]
@@ -65,6 +65,15 @@ if TYPE_CHECKING:
 __all__ = ["DEFAULT_CHUNK_SIZE", "AsyncChartsheet", "AsyncWorksheet"]
 
 R = TypeVar("R")
+
+#: Every kind of raw openpyxl worksheet a wrapper can hold.
+RawWorksheet = Worksheet | ReadOnlyWorksheet | WriteOnlyWorksheet
+
+#: The raw worksheet type of an :class:`AsyncWorksheet` / :class:`Workbook`.
+#:
+#: Covariant, so a precisely typed ``Workbook[Worksheet]`` is accepted wherever
+#: a plain ``Workbook`` (``Workbook[RawWorksheet]``, the default) is expected.
+WS_co = TypeVar("WS_co", bound=RawWorksheet, default=RawWorksheet, covariant=True)
 
 #: Number of rows fetched per thread hop when streaming a worksheet.
 DEFAULT_CHUNK_SIZE = 1024
@@ -367,8 +376,15 @@ class _SheetMixin(GuardedProxy):
         return id(self._obj)
 
 
-class AsyncWorksheet(_SheetMixin, WorksheetProxy):
+class AsyncWorksheet(_SheetMixin, WorksheetProxy, Generic[WS_co]):
     """Async-aware proxy for ``Worksheet``, ``ReadOnlyWorksheet`` and ``WriteOnlyWorksheet``.
+
+    The type parameter is the raw worksheet type, fixed by where the sheet
+    comes from: ``Workbook()`` yields ``AsyncWorksheet[Worksheet]``,
+    ``Workbook(write_only=True)`` ``AsyncWorksheet[WriteOnlyWorksheet]`` and
+    ``load_workbook(..., read_only=True)`` ``AsyncWorksheet[ReadOnlyWorksheet]``,
+    so :meth:`run` and :attr:`wrapped` are typed precisely.  A plain
+    ``AsyncWorksheet`` annotation means the union of the three.
 
     Every public openpyxl member is available with its original signature.
     In-memory members (``ws["A1"]``, ``ws.cell(...)``, ``ws.title``,
@@ -398,16 +414,21 @@ class AsyncWorksheet(_SheetMixin, WorksheetProxy):
 
     def __init__(
         self,
-        worksheet: RawWorksheet,
+        worksheet: WS_co,
         runner: Runner | None = None,
         parent: AsyncWorkbook | None = None,
     ) -> None:
         self._init(worksheet, runner, parent)
 
     @property
-    def wrapped(self) -> RawWorksheet:
+    def wrapped(self) -> WS_co:
         """The underlying openpyxl worksheet (no busy check)."""
         return self._obj
+
+    @property
+    def parent(self) -> AsyncWorkbook[WS_co] | None:
+        """The owning :class:`Workbook` (shares this sheet's runner)."""
+        return cast("AsyncWorkbook[WS_co] | None", super().parent)
 
     @property
     def is_write_only(self) -> bool:
@@ -417,7 +438,7 @@ class AsyncWorksheet(_SheetMixin, WorksheetProxy):
     def is_read_only(self) -> bool:
         return isinstance(self._obj, ReadOnlyWorksheet)
 
-    async def run(self, func: Callable[[RawWorksheet], R]) -> R:
+    async def run(self, func: Callable[[WS_co], R]) -> R:
         """Run ``func(raw_worksheet)`` in the workbook's worker thread and return its result.
 
         The right tool for bulk in-memory work and for anything a read-only
@@ -738,6 +759,10 @@ class AsyncWorksheet(_SheetMixin, WorksheetProxy):
         values_only: bool = True,
     ) -> list[Any]:
         """Read a whole range in a single thread hop and return it as a list.
+
+        Unlike ``iter_rows``, ``values_only`` defaults to ``True``: a bulk read
+        is almost always after the values.  Pass ``values_only=False`` for the
+        cell objects.
 
         The iterator is created inside the hop, so concurrent ``read_rows``
         calls (or one next to a ``run``) serialise on the runner.

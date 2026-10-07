@@ -61,7 +61,7 @@ from ._workbook import AsyncWorkbook, Workbook
 from ._worksheet import DEFAULT_CHUNK_SIZE, AsyncChartsheet, AsyncWorksheet
 
 #: aioopenpyxl's own version (not openpyxl's).
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 #: Alias mirroring ``openpyxl.open``.
 open = load_workbook
