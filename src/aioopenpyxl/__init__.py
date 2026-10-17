@@ -24,6 +24,16 @@ spooling rows of write-only sheets, ``run(...)``) execute in a worker thread
 and are serialised per workbook; while one is in flight, synchronous access
 raises :class:`WorkbookBusyError` instead of racing.
 
+``Workbook(process=True)`` and ``load_workbook(..., process=True)`` keep a
+workbook in a persistent spawned process. Use ``await wb.run(fn)`` for all
+cell/sheet operations and the existing async save/close APIs. Synchronous
+access is refused so it cannot wait on process communication on the loop.
+
+For complete CPU-heavy jobs, :class:`ProcessPool` executes an importable
+synchronous callable with picklable arguments/results in reusable spawned
+processes, each with an independent interpreter/GIL. Without ``process=True``,
+the workbook/worksheet wrappers continue to execute in threads.
+
 ``import aioopenpyxl as openpyxl`` is supported as a migration path: the
 top-level ``Workbook`` / ``load_workbook`` / ``open`` are the *async* wrappers
 (``save``/``close``/``load`` must be awaited), while openpyxl's sub-packages
@@ -56,6 +66,7 @@ from openpyxl import (
 from ._compat import install_module_aliases
 from ._errors import BlockingCallError, WorkbookBusyError
 from ._executor import Runner, run_sync
+from ._process import ProcessPool
 from ._reader import LoadWorkbookContextManager, load_workbook, load_workbook_bytes
 from ._workbook import AsyncWorkbook, Workbook
 from ._worksheet import DEFAULT_CHUNK_SIZE, AsyncChartsheet, AsyncWorksheet
@@ -77,6 +88,7 @@ __all__ = [
     "AsyncWorksheet",
     "BlockingCallError",
     "LoadWorkbookContextManager",
+    "ProcessPool",
     "Runner",
     "Workbook",
     "WorkbookBusyError",

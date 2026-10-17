@@ -16,6 +16,7 @@ from anyio import CapacityLimiter
 
 from ._executor import Runner, runner_for
 from ._workbook import Workbook
+from ._workbook_process import WorkbookProcess
 from ._worksheet import WS_co
 
 if TYPE_CHECKING:
@@ -76,7 +77,17 @@ async def _open(
     filename: str | PathLike[str] | IO[bytes],
     limiter: CapacityLimiter | None,
     kwargs: dict[str, Any],
+    process: bool = False,
 ) -> Workbook[Any]:
+    if process:
+        backend = WorkbookProcess(kwargs, source=filename, loading=True, limiter=limiter)
+        try:
+            await backend.open()
+        except BaseException:
+            with contextlib.suppress(anyio.get_cancelled_exc_class()):
+                await backend.close()
+            raise
+        return Workbook._from_process(backend)
     # The load runs under the workbook's future Runner so that a native
     # asyncio cancellation waits for the thread; a workbook that was produced
     # but has no owner any more is closed instead of leaking its archive.
@@ -109,6 +120,7 @@ def load_workbook(
     rich_text: bool = False,
     *,
     limiter: CapacityLimiter | None = None,
+    process: bool = False,
 ) -> LoadWorkbookContextManager[Worksheet]: ...
 
 
@@ -122,6 +134,7 @@ def load_workbook(
     rich_text: bool = False,
     *,
     limiter: CapacityLimiter | None = None,
+    process: bool = False,
 ) -> LoadWorkbookContextManager[ReadOnlyWorksheet]: ...
 
 
@@ -135,6 +148,7 @@ def load_workbook(
     rich_text: bool = False,
     *,
     limiter: CapacityLimiter | None = None,
+    process: bool = False,
 ) -> LoadWorkbookContextManager[Worksheet | ReadOnlyWorksheet]: ...
 
 
@@ -147,11 +161,15 @@ def load_workbook(
     rich_text: bool = False,
     *,
     limiter: CapacityLimiter | None = None,
+    process: bool = False,
 ) -> LoadWorkbookContextManager[Any]:
     """Open an ``.xlsx`` file without blocking the event loop.
 
     Accepts the same arguments as :func:`openpyxl.load_workbook` plus an
-    optional ``limiter`` (an :class:`anyio.CapacityLimiter`).  The result can be
+    optional ``limiter`` (an :class:`anyio.CapacityLimiter`) and ``process``.
+    With ``process=True``, loading, :meth:`Workbook.run` and saving use one
+    persistent spawned process; synchronous workbook/sheet access is refused.
+    Put cell operations inside ``await wb.run(...)``. The result can be
     awaited directly or used with ``async with`` (which closes the workbook on
     exit).  The workbook is typed by ``read_only``: ``Workbook[ReadOnlyWorksheet]``
     for ``read_only=True``, ``Workbook[Worksheet]`` otherwise.
@@ -163,7 +181,7 @@ def load_workbook(
         "keep_links": keep_links,
         "rich_text": rich_text,
     }
-    return LoadWorkbookContextManager(_open(filename, limiter, kwargs))
+    return LoadWorkbookContextManager(_open(filename, limiter, kwargs, process))
 
 
 @overload
@@ -176,6 +194,7 @@ def load_workbook_bytes(
     rich_text: bool = False,
     *,
     limiter: CapacityLimiter | None = None,
+    process: bool = False,
 ) -> LoadWorkbookContextManager[Worksheet]: ...
 
 
@@ -189,6 +208,7 @@ def load_workbook_bytes(
     rich_text: bool = False,
     *,
     limiter: CapacityLimiter | None = None,
+    process: bool = False,
 ) -> LoadWorkbookContextManager[ReadOnlyWorksheet]: ...
 
 
@@ -202,6 +222,7 @@ def load_workbook_bytes(
     rich_text: bool = False,
     *,
     limiter: CapacityLimiter | None = None,
+    process: bool = False,
 ) -> LoadWorkbookContextManager[Worksheet | ReadOnlyWorksheet]: ...
 
 
@@ -214,6 +235,7 @@ def load_workbook_bytes(
     rich_text: bool = False,
     *,
     limiter: CapacityLimiter | None = None,
+    process: bool = False,
 ) -> LoadWorkbookContextManager[Any]:
     """Open an ``.xlsx`` held in memory (an S3 object, an upload body ...).
 
@@ -227,4 +249,5 @@ def load_workbook_bytes(
         keep_links=keep_links,
         rich_text=rich_text,
         limiter=limiter,
+        process=process,
     )

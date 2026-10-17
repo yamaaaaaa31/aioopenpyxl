@@ -19,11 +19,15 @@ CPU time with nothing to wait on, so making openpyxl itself `async` would gain n
 async application needs is for that work to happen on a worker thread while the event loop
 waits for it, which is exactly what a wrapper can provide.
 
-Threads only: openpyxl objects are not picklable, so a process pool would need a bytes-level
-hand-off that you own. On standard builds the GIL still applies; threads keep the event loop
-responsive, they do not parallelise CPU work. Free-threaded Python removes that limit for
-independent workbooks. `lxml` is not needed; on free-threaded builds importing it re-enables
-the GIL.
+The existing workbook/worksheet wrappers use threads and share the application's GIL on
+standard builds. They do not parallelise Python CPU work. Free-threaded Python removes that
+limit for independent workbooks. `lxml` is not needed; on free-threaded builds importing an
+extension without free-threading support can re-enable the GIL.
+
+For an independent interpreter/GIL, use `process=True` for a persistent workbook, or
+`ProcessPool` to move an entire job across an explicit process boundary. Raw Workbook/Cell
+references and open archives cannot be shared with a child as live objects; the process APIs
+take callables and serializable data instead.
 
 ## What is offloaded
 
@@ -42,6 +46,147 @@ Streaming parameters:
   instead of kept as cell objects. On a write-only sheet every `await ws.append(row)` is a thread
   round trip, `append_rows` does the whole batch in one.
 - A short final chunk ends the stream without an extra round trip for the empty tail.
+
+## `process=True` workbooks
+
+`Workbook(process=True)` and `load_workbook(..., process=True)` keep the same `Workbook` class
+and async `run`, `save`, `to_bytes`, `close` and context-manager APIs. Each process workbook
+owns a `ProcessPoolExecutor(max_workers=1, mp_context=spawn)`, so all commands reach the same
+live workbook. It is never returned to the parent and reloaded between commands. In-memory,
+read-only and write-only workbooks all work this way; a read-only workbook's open archive
+remains in the child.
+
+`Workbook(process=True)` is lazy: its constructor starts no process and creates no raw
+workbook in the parent. The first awaited operation or context entry creates it in the child.
+`load_workbook(..., process=True)` completes the load before returning. Paths are opened in
+the child after resolving paths relative to the parent's working directory. File-like inputs
+are snapshotted in a coordinating thread, preserving their seek position, then loaded from
+bytes. Saving to a file-like object returns the Excel bytes from
+the child and writes them in the coordinating thread.
+
+Synchronous sheet/attribute/cell access is deliberately refused with `BlockingCallError`:
+`wb.active`, `wb["Sheet"]`, `wb.sheetnames`, `wb.wrapped` and property assignments must move
+inside `await wb.run(fn)`. Waiting for a remote property synchronously would block the event
+loop. The callback receives a real synchronous openpyxl workbook, so use plain openpyxl code
+inside it, without `await`. `cloudpickle` supports lambdas and local functions as well as
+module-level functions. Captured data and return values must be serializable; event loops,
+locks, open handles and the async workbook wrapper itself cannot be captured. Results are
+copies: returning a Cell/Worksheet/Workbook does not create a live remote reference, so return
+plain data and keep all edits inside `run`. Callback errors retain their type and message,
+with the child traceback attached as the cause.
+
+All coordination, callback/result serialization and process startup happen off the event
+loop under the workbook's `Runner`. It serializes operations and holds cancellation until
+an in-flight command finishes. `close()` and context exit close the workbook, its VBA copy
+and any unsaved write-only spool files, then join the worker even during cancellation.
+A failed/cancelled load closes its unreturned workbook/pool. Process-mode `close()` is
+idempotent and ends the workbook's lifetime: subsequent commands fail instead of spawning
+a new worker. Crashed workers are not restarted and commands are never retried automatically.
+
+This is one worker process per live process workbook, not a shared application-wide pool;
+bound concurrent workbook lifetimes to match the deployment's memory/CPU budget. `limiter=`
+still bounds the coordinating thread work across workbooks, not the count of idle processes.
+Use the shared `ProcessPool` job API below when whole jobs can run as one call and should share
+a fixed number of application-wide workers. Serialization still has a cost and processes
+still share the host's CPU/memory limits; neither API guarantees request latency.
+
+## Process pool jobs
+
+`async with ProcessPool(max_workers=2) as pool:` owns a reusable standard-library
+`ProcessPoolExecutor`. `await pool.run(func, *args, **kwargs)` runs the synchronous callable
+in a child process, on both asyncio and trio. This is an explicit job API, separate from
+`wb.run(fn)` / `ws.run(fn)`, which by default execute against the existing live object in a
+thread. With `process=True`, `wb.run(fn)` uses the persistent child described above. The flag
+selects a process backend; it does not turn off the GIL for one call in a shared interpreter.
+
+Keep the whole create/load, edit and save sequence inside the job, returning bytes, a path
+or extracted plain data. Returning a workbook to the parent and then editing it there would
+put the CPU work back in the server. Per-cell process messages would require remote proxies
+for cells, styles and attributes; this API deliberately uses a single coarse-grained call.
+
+The pool always uses `multiprocessing.get_context("spawn")`, including on Linux, so it never
+forks an already multithreaded ASGI server. Callables must be importable module-level functions;
+local functions, lambdas, live async wrappers and open file handles are not suitable payloads.
+Arguments, results and worker exceptions follow standard `ProcessPoolExecutor` pickling rules.
+Standalone scripts must guard their entry point with `if __name__ == "__main__":`. An
+interactive interpreter/notebook's local definitions are not importable worker functions.
+Context variables are not propagated: pass request metadata explicitly.
+
+Process startup, submission and waiting for the result happen in a coordinating thread, so
+they do not synchronously wait on the event loop. Excel work happens in the child. Pickling,
+transport and memory copies still have a cost, and CPU/memory limits are shared with the
+server. This is isolation from the same interpreter's GIL, not a guarantee of API latency or
+faster Excel processing.
+
+Admission is bounded to `max_workers` jobs (default **1**). A caller waiting for a slot can
+cancel without submitting work. A cancelled admitted call waits for its coordinating thread
+and any submitted job to finish; the existing `Runner` handles both anyio cancellation and
+native asyncio `Task.cancel()` / timeouts. A running process is never killed midway through
+a file save. Consequently a timeout is not a hard execution deadline, and cancellation does
+not undo writes. Worker exceptions propagate; a crashed worker breaks the pool as in
+`ProcessPoolExecutor`, and jobs are never automatically retried.
+
+`aclose()` first rejects new work, waits for admitted calls (including ones not yet submitted)
+and joins all workers off the event loop. It is idempotent, serialises concurrent close calls
+and completes before propagating cancellation. Calls still waiting for admission when the
+pool closes are rejected. A pool cannot be reopened or nested, and should be used within one
+application event loop. Jobs must coordinate their own output paths; separate jobs writing
+the same file are not protected by a shared workbook runner.
+
+### FastAPI example
+
+Put the synchronous job in an importable module, such as `excel_jobs.py`:
+
+```python
+import io
+import openpyxl
+
+
+def render_report(rows: list[list[str | int]]) -> bytes:
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet("Data")
+    for row in rows:
+        ws.append(row)
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
+```
+
+Create and close the pool in the application's lifespan, rather than per request (`app.py`):
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, Response
+from aioopenpyxl import ProcessPool
+from excel_jobs import render_report
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with ProcessPool(max_workers=2) as pool:
+        app.state.excel_pool = pool
+        yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/report.xlsx")
+async def report(request: Request):
+    content = await request.app.state.excel_pool.run(
+        render_report, [["name", "count"], ["item", 7]]
+    )
+    return Response(
+        content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="report.xlsx"'},
+    )
+```
+
+Start it as an importable application, for example `uvicorn app:app`. Each ASGI server worker
+owns its own pool: four server workers with `max_workers=2` can start eight Excel processes.
+Choose the worker count for the deployment's available CPU and memory.
 
 ## One binary semaphore per workbook
 

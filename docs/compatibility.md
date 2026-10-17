@@ -122,9 +122,18 @@ assignment `obj.name = value` is resolved in this order:
 
 ## Differences, all deliberate
 
+The full forwarded synchronous surface applies to the default thread mode. With
+`Workbook(process=True)` / `load_workbook(..., process=True)`, use the same async `run`,
+`save`, `to_bytes`, `close` and context-manager APIs, with all sheet/cell/attribute operations
+inside `await wb.run(fn)`. Direct synchronous access and `wrapped` raise `BlockingCallError`.
+Callbacks can be lambdas or local functions; captured values and results must be serializable,
+and results are copies. In process mode `close()` joins the worker and ends the workbook's
+lifetime, so operations after close raise `RuntimeError`. See
+[process workbooks](design.md#processtrue-workbooks) for the complete lifecycle and limits.
+
 | openpyxl | aioopenpyxl |
 | --- | --- |
-| `Workbook(write_only=..., iso_dates=...)` | `Workbook(write_only=..., iso_dates=..., limiter=...)` (same signature); wrap an existing workbook with `Workbook.wrap(wb)` |
+| `Workbook(write_only=..., iso_dates=...)` | `Workbook(write_only=..., iso_dates=..., limiter=..., process=False)`; wrap an existing workbook with `Workbook.wrap(wb)` |
 | `load_workbook(...)` | `await load_workbook(...)` or `async with load_workbook(...) as wb` |
 | `load_workbook(io.BytesIO(data))` | `await load_workbook_bytes(data)` |
 | `wb.save(f)`, `wb.close()` | `await wb.save(f)`, `await wb.to_bytes()`, `await wb.close()` |
