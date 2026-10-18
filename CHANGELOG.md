@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Workbook(process=True)`, `load_workbook(..., process=True)` and
+  `load_workbook_bytes(..., process=True)` keep a workbook in a persistent spawned process.
+  The existing async `run`, `save`, `to_bytes` and `close` APIs operate on that workbook;
+  put cell/sheet operations inside `run` (lambdas and local callbacks are supported).
+  Direct synchronous access raises `BlockingCallError`; closing joins the worker and
+  ends the process workbook's lifetime. The default thread mode is unchanged.
+
+- `ProcessPool(max_workers=1)` runs complete synchronous Excel jobs in reusable spawned
+  processes with independent interpreters/GILs, on asyncio and trio. Use `async with` and
+  `await pool.run(func, *args, **kwargs)` with importable callables and picklable data.
+  Admission is bounded; cancellation and shutdown wait for running jobs to finish.
+
 ## [0.1.1] - 2026-10-08
 
 ### Added

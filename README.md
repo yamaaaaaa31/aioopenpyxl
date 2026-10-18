@@ -10,10 +10,13 @@ Asynchronous wrapper around [openpyxl](https://openpyxl.readthedocs.io/) with th
 openpyxl API surface, built on [anyio](https://anyio.readthedocs.io/) so it works on **asyncio
 and trio** alike. openpyxl is synchronous, CPU-bound and not thread-safe: calling it on the event
 loop stalls every other request, and merely moving it to a thread lets a second coroutine corrupt
-the file silently. aioopenpyxl runs the operations that can block in worker threads, serialises
+the file silently. By default, aioopenpyxl runs blocking operations in worker threads, serialises
 all work on one workbook, and makes synchronous access to a workbook a thread currently owns
 raise instead of racing. It is an independent project, not affiliated with or endorsed by
 openpyxl; please report problems with this wrapper here.
+
+For CPU-heavy work that must not share the server's GIL, opt into `process=True` or use the
+explicit [`ProcessPool`](docs/design.md#process-pool-jobs) API below.
 
 ## Install
 
@@ -22,7 +25,7 @@ uv add aioopenpyxl   # or: pip install aioopenpyxl
 ```
 
 Python 3.10 or newer (including the free-threaded 3.14t build); depends on `anyio`, `openpyxl`,
-`types-openpyxl` and `typing_extensions`.
+`types-openpyxl`, `cloudpickle` and `typing_extensions`.
 
 ## Quick start
 
@@ -53,10 +56,50 @@ Wrap an openpyxl workbook you already have with `aioopenpyxl.Workbook.wrap(exist
 `Workbook` is a real class: `isinstance`, annotations and subclassing work as with
 `openpyxl.Workbook`, and a subclass can keep attributes of its own.
 
+## Process execution
+
+Select a persistent child process with `Workbook(process=True)` or
+`load_workbook(..., process=True)`; keep cell/sheet operations inside the existing `run` API:
+
+```python
+def edit(raw_wb):  # plain synchronous openpyxl code; local functions/lambdas also work
+    ws = raw_wb["Data"]
+    ws["A1"] = "updated"
+
+
+async with aioopenpyxl.load_workbook("input.xlsx", process=True) as wb:
+    await wb.run(edit)
+    titles = await wb.run(lambda raw: raw.sheetnames)
+    await wb.save("output.xlsx")
+
+async with aioopenpyxl.Workbook(process=True) as wb:
+    await wb.run(lambda raw: raw.create_sheet("Report").append(["item", 7]))
+    xlsx = await wb.to_bytes()
+```
+
+The workbook stays in one worker for its lifetime. Synchronous access such as `wb.active`,
+`wb["Data"]` or `wb.wrapped` raises `BlockingCallError`: move it inside `run` so the event
+loop never waits synchronously for a process response. Captured values and results must be
+serializable; results are copies. `await wb.close()` / context exit joins the worker and
+ends the workbook's lifetime. See [process workbooks](docs/design.md#processtrue-workbooks).
+
+### Shared pool for complete jobs
+
+Use `async with ProcessPool(max_workers=2) as pool:` and `await pool.run(export, rows)` to
+share a fixed number of workers across complete jobs. `export` must be an importable,
+module-level synchronous function that creates/loads, edits and saves the workbook, with
+picklable arguments/results. At most `max_workers` jobs are admitted at once (default **1**).
+Running jobs finish before cancellation or shutdown completes. See
+[process pool jobs](docs/design.md#process-pool-jobs) for a complete FastAPI example and the
+`spawn` requirements (including a guarded `if __name__ == "__main__":` entry point for scripts
+using either process API). The default workbook mode continues to use threads.
+
 ## What runs where
 
 | Operation | Where | Why |
 | --- | --- | --- |
+| `Workbook(process=True)` / `load_workbook(..., process=True)`: `run`, `save`, `to_bytes`, `close` | same worker process for the workbook's lifetime | independent interpreter/GIL; cell operations belong inside `run` |
+| `await pool.run(fn, *args, **kwargs)` inside `async with ProcessPool(...)` | worker process | complete jobs with an independent interpreter/GIL |
 | `await load_workbook(...)`, `await load_workbook_bytes(data)`, `await wb.save(...)`, `await wb.to_bytes()`, `await wb.close()` | worker thread | real I/O, XML parsing / writing |
 | `async for row in ws.iter_rows(..., chunk_size=1024, prefetch=0)`, `ws.rows`, `ws.values`, `ws.columns`, `async for row in ws` | worker thread, one hop per `chunk_size` rows; with `prefetch=N` the thread parses `N` chunks ahead | read-only sheets parse XML lazily |
 | `await ws.read_rows(...)`, `await ws.fetch(key)`, `await ws.calculate_dimension()` | worker thread, one hop | coarse-grained reads |

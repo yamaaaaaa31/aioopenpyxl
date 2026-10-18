@@ -95,6 +95,24 @@ async def _workbook(wb: aioopenpyxl.Workbook, raw: openpyxl.Workbook) -> None:
     assert_type(wb.get_sheet_by_name("x"), aioopenpyxl.AsyncWorksheet)
 
 
+async def _process_pool(pool: aioopenpyxl.ProcessPool) -> None:
+    def export(path: str, *, title: str) -> bytes:
+        return b""
+
+    assert_type(await pool.run(export, "input.xlsx", title="Data"), bytes)
+    async with aioopenpyxl.ProcessPool(max_workers=2) as opened:
+        assert_type(opened, aioopenpyxl.ProcessPool)
+
+
+async def _process_workbooks() -> None:
+    assert_type(aioopenpyxl.Workbook(process=True), aioopenpyxl.Workbook[Worksheet])
+    async with aioopenpyxl.load_workbook("input.xlsx", process=True) as wb:
+        assert_type(wb, aioopenpyxl.Workbook[Worksheet])
+        assert_type(await wb.run(lambda raw: raw.sheetnames), list[str])
+    async with aioopenpyxl.load_workbook_bytes(b"", read_only=True, process=True) as wb_ro:
+        assert_type(wb_ro, aioopenpyxl.Workbook[ReadOnlyWorksheet])
+
+
 async def _sheet_kinds(raw: openpyxl.Workbook, flag: bool) -> None:
     """The raw worksheet type follows from where the workbook comes from."""
     assert_type(aioopenpyxl.Workbook(), aioopenpyxl.Workbook[Worksheet])

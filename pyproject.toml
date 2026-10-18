@@ -30,6 +30,7 @@ classifiers = [
 dependencies = [
     # anyio.Lock(fast_acquire=True) needs 4.5
     "anyio>=4.5",
+    "cloudpickle>=3.1.2",
     "openpyxl>=3.1",
     # The generated public signatures reference stub-only names from types-openpyxl
     # (_CellGetValue, _CellSetValue, _VisibilityType, _SerialisableTreeElement ...);

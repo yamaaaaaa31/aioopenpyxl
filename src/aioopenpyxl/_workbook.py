@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import weakref
 from collections.abc import Callable, Iterator, Sequence
@@ -9,14 +10,16 @@ from os import PathLike
 from types import TracebackType
 from typing import IO, TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast, overload
 
+import anyio
 import openpyxl
 from anyio import CapacityLimiter
 from openpyxl.chartsheet.chartsheet import Chartsheet
 from typing_extensions import Self
 
-from ._errors import WorkbookBusyError
+from ._errors import BlockingCallError, WorkbookBusyError
 from ._executor import Runner, runner_for
 from ._generated import WorkbookProxy
+from ._workbook_process import WorkbookProcess
 from ._worksheet import AsyncChartsheet, AsyncWorksheet, WS_co
 
 if TYPE_CHECKING:
@@ -32,9 +35,18 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
     """Async-aware proxy for :class:`openpyxl.Workbook`.
 
     ``Workbook()`` creates a new in-memory workbook with the same signature as
-    ``openpyxl.Workbook(write_only=..., iso_dates=...)``; construction is
-    purely in-memory, so it is a plain call rather than a coroutine.  Wrap an
-    existing openpyxl workbook with :meth:`wrap`.
+    ``openpyxl.Workbook(write_only=..., iso_dates=...)``; construction is a
+    plain call rather than a coroutine. Wrap an existing openpyxl workbook
+    with :meth:`wrap`.
+
+    With ``process=True``, the workbook is created lazily in a persistent
+    spawned process at the first awaited operation. :meth:`run`, :meth:`save`,
+    :meth:`to_bytes` and :meth:`close` use that process; synchronous sheet,
+    cell and attribute access raises :class:`BlockingCallError`. Put those
+    operations inside :meth:`run` instead. Lambdas and local synchronous
+    callbacks are supported; captured values and results must be serializable.
+    Process-mode :meth:`close` terminates the workbook's lifetime and joins
+    its worker, so use ``async with`` or explicitly await :meth:`close`.
 
     The type parameter is the raw worksheet type of the sheets this workbook
     hands out: ``Workbook()`` is a ``Workbook[Worksheet]``,
@@ -57,9 +69,10 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
     compatibility.
     """
 
-    __slots__ = ("_obj", "_runner", "_sheets")
+    __slots__ = ("_obj", "_process_backend", "_runner", "_sheets")
 
-    _obj: openpyxl.Workbook
+    _obj: openpyxl.Workbook | None
+    _process_backend: WorkbookProcess | None
     # id(raw sheet) -> wrapper, so ``wb["X"] is wb["X"]`` and wrappers are reused.
     _sheets: weakref.WeakValueDictionary[int, AsyncWorksheet[Any] | AsyncChartsheet]
 
@@ -70,6 +83,7 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
         iso_dates: bool = False,
         *,
         limiter: CapacityLimiter | None = None,
+        process: bool = False,
     ) -> None: ...
 
     @overload
@@ -79,6 +93,7 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
         iso_dates: bool = False,
         *,
         limiter: CapacityLimiter | None = None,
+        process: bool = False,
     ) -> None: ...
 
     @overload
@@ -88,6 +103,7 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
         iso_dates: bool = False,
         *,
         limiter: CapacityLimiter | None = None,
+        process: bool = False,
     ) -> None: ...
 
     @overload
@@ -99,6 +115,7 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
         iso_dates: bool = False,
         *,
         limiter: CapacityLimiter | None = None,
+        process: bool = False,
     ) -> None: ...
 
     def __init__(
@@ -107,6 +124,7 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
         iso_dates: bool = False,
         *,
         limiter: CapacityLimiter | None = None,
+        process: bool = False,
     ) -> None:
         if isinstance(write_only, openpyxl.Workbook):
             # The pre-1.0 ``AsyncWorkbook(raw_workbook)`` call shape; without this
@@ -116,6 +134,11 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
                 "Workbook() creates a new workbook; to wrap an existing "
                 "openpyxl.Workbook use Workbook.wrap(workbook, limiter=...)"
             )
+        if process:
+            self._init_process(
+                WorkbookProcess({"write_only": write_only, "iso_dates": iso_dates}, limiter=limiter)
+            )
+            return
         raw = openpyxl.Workbook(write_only=write_only, iso_dates=iso_dates)
         self._init(raw, runner_for(raw, limiter))
 
@@ -148,11 +171,38 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
         object.__setattr__(self, "_obj", workbook)
         object.__setattr__(self, "_runner", runner)
         object.__setattr__(self, "_sheets", weakref.WeakValueDictionary())
+        object.__setattr__(self, "_process_backend", None)
+
+    @classmethod
+    def _from_process(cls, backend: WorkbookProcess) -> Self:
+        self = cls.__new__(cls)
+        self._init_process(backend)
+        return self
+
+    def _init_process(self, backend: WorkbookProcess) -> None:
+        object.__setattr__(self, "_obj", None)
+        object.__setattr__(self, "_runner", backend.runner)
+        object.__setattr__(self, "_sheets", weakref.WeakValueDictionary())
+        object.__setattr__(self, "_process_backend", backend)
+
+    @property
+    def _raw(self) -> Any:
+        if getattr(self, "_process_backend", None) is not None:
+            raise BlockingCallError(
+                "Synchronous workbook access is unavailable with process=True; "
+                "move cell, sheet and attribute operations inside `await wb.run(...)`"
+            )
+        return super()._raw
 
     # ------------------------------------------------------------------ basics
     @property
     def wrapped(self) -> openpyxl.Workbook:
-        """The underlying openpyxl workbook (no busy check)."""
+        """The raw workbook (no busy check); unavailable with ``process=True``."""
+        if self._process_backend is not None:
+            raise BlockingCallError(
+                "The raw workbook lives in a child process; use `await wb.run(...)`"
+            )
+        assert self._obj is not None
         return self._obj
 
     @property
@@ -161,6 +211,8 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
         return self._runner.limiter
 
     def __repr__(self) -> str:
+        if self._process_backend is not None:
+            return "<Workbook process>"
         try:
             return f"<Workbook sheets={self._raw.sheetnames!r}>"
         except WorkbookBusyError:
@@ -272,26 +324,36 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
 
     # ------------------------------------------------------------- async I/O
     async def run(self, func: Callable[[openpyxl.Workbook], R]) -> R:
-        """Run ``func(raw_workbook)`` in the worker thread and return its result.
+        """Run ``func(raw_workbook)`` off the loop and return its result.
 
-        One thread hop for bulk in-memory work; the per-workbook lock
-        guarantees nothing else touches the workbook meanwhile.
+        One thread hop by default; with ``process=True``, run against the
+        persistent child-process workbook. The per-workbook lock serializes
+        calls in either mode. Process-mode return values are copies, never
+        live references into the child; keep all cell operations in ``func``.
         """
-        return await self._runner(func, self._obj)
+        if self._process_backend is not None:
+            return await self._process_backend.run(func)
+        return await self._runner(func, self.wrapped)
 
     async def save(self, filename: str | PathLike[str] | IO[bytes]) -> None:
         """Serialise the workbook to ``filename`` (path or binary file object) off the loop."""
-        await self._runner(self._obj.save, filename)
+        if self._process_backend is not None:
+            await self._process_backend.save(filename)
+            return
+        await self._runner(self.wrapped.save, filename)
 
     async def to_bytes(self) -> bytes:
         """Serialise the workbook and return the ``.xlsx`` bytes (one thread hop)."""
+
+        if self._process_backend is not None:
+            return await self._process_backend.to_bytes()
 
         def _dump(wb: openpyxl.Workbook) -> bytes:
             buf = io.BytesIO()
             wb.save(buf)
             return buf.getvalue()
 
-        return await self._runner(_dump, self._obj)
+        return await self._runner(_dump, self.wrapped)
 
     async def close(self) -> None:
         """Release underlying resources (the zip archive of read-only workbooks).
@@ -300,10 +362,24 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
         ``keep_vba=True`` workbook holds in ``vba_archive`` stays open so a
         later :meth:`save` can still read it.  Leaving the ``async with``
         block closes that copy too (see :meth:`__aexit__`).
+
+        With ``process=True``, also closes the VBA copy and joins the worker.
+        This is idempotent and ends the process workbook's lifetime; later
+        operations raise :class:`RuntimeError`.
         """
-        await self._runner(self._obj.close)
+        if self._process_backend is not None:
+            await self._process_backend.close()
+            return
+        await self._runner(self.wrapped.close)
 
     async def __aenter__(self) -> Self:
+        if self._process_backend is not None:
+            try:
+                await self._process_backend.open()
+            except BaseException:
+                with contextlib.suppress(anyio.get_cancelled_exc_class()):
+                    await self._process_backend.close()
+                raise
         return self
 
     async def __aexit__(
@@ -315,7 +391,10 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
         # Cancellation -- anyio style or native asyncio, even while waiting
         # for the semaphore -- cannot skip the close (which would leak the zip
         # archive of a read-only workbook); it is re-raised afterwards.
-        await self._runner.run_uncancellable(_close_for_exit, self._obj)
+        if self._process_backend is not None:
+            await self._process_backend.close()
+            return
+        await self._runner.run_uncancellable(_close_for_exit, self.wrapped)
 
 
 def _close_for_exit(wb: openpyxl.Workbook) -> None:
