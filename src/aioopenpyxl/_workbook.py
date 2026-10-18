@@ -34,8 +34,8 @@ R = TypeVar("R")
 class Workbook(WorkbookProxy, Generic[WS_co]):
     """Async-aware proxy for :class:`openpyxl.Workbook`.
 
-    ``Workbook()`` creates a new in-memory workbook with the same signature as
-    ``openpyxl.Workbook(write_only=..., iso_dates=...)``; construction is a
+    ``Workbook()`` accepts openpyxl's ``write_only`` and ``iso_dates`` arguments
+    plus keyword execution options. Construction is a
     plain call rather than a coroutine. Wrap an existing openpyxl workbook
     with :meth:`wrap`.
 
@@ -57,7 +57,7 @@ class Workbook(WorkbookProxy, Generic[WS_co]):
     plain type, since a raw workbook does not say which kind it is; spell
     ``Workbook[Worksheet].wrap(raw)`` when you know).
 
-    Every public openpyxl member is available.  Sheet management
+    In the default thread mode, every public openpyxl member is available. Sheet management
     (``create_sheet``, ``remove``, ``wb["Sheet"]`` ...) is in-memory and
     forwarded directly, returning :class:`AsyncWorksheet` /
     :class:`AsyncChartsheet` wrappers that share this workbook's worker

@@ -4,11 +4,11 @@
 [![PyPI](https://img.shields.io/pypi/v/aioopenpyxl.svg)](https://pypi.org/project/aioopenpyxl/)
 [![Downloads](https://static.pepy.tech/badge/aioopenpyxl)](https://pepy.tech/project/aioopenpyxl)
 [![Python versions](https://img.shields.io/pypi/pyversions/aioopenpyxl.svg)](https://pypi.org/project/aioopenpyxl/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/yamaaaaaa31/aioopenpyxl/blob/main/LICENSE)
 
 Asynchronous wrapper around [openpyxl](https://openpyxl.readthedocs.io/) with the complete
-openpyxl API surface, built on [anyio](https://anyio.readthedocs.io/) so it works on **asyncio
-and trio** alike. openpyxl is synchronous, CPU-bound and not thread-safe: calling it on the event
+openpyxl API surface in its default thread mode, built on [anyio](https://anyio.readthedocs.io/)
+so it works on **asyncio and trio** alike. openpyxl is synchronous, CPU-bound and not thread-safe: calling it on the event
 loop stalls every other request, and merely moving it to a thread lets a second coroutine corrupt
 the file silently. By default, aioopenpyxl runs blocking operations in worker threads, serialises
 all work on one workbook, and makes synchronous access to a workbook a thread currently owns
@@ -16,13 +16,16 @@ raise instead of racing. It is an independent project, not affiliated with or en
 openpyxl; please report problems with this wrapper here.
 
 For CPU-heavy work that must not share the server's GIL, opt into `process=True` or use the
-explicit [`ProcessPool`](docs/design.md#process-pool-jobs) API below.
+explicit [`ProcessPool`](https://github.com/yamaaaaaa31/aioopenpyxl/blob/main/docs/design.md#process-pool-jobs) API below.
 
 ## Install
 
 ```sh
 uv add aioopenpyxl   # or: pip install aioopenpyxl
 ```
+
+Process execution is available starting in **0.2.0**. Upgrade an existing installation with
+`uv add 'aioopenpyxl>=0.2.0'` or `pip install --upgrade aioopenpyxl`.
 
 Python 3.10 or newer (including the free-threaded 3.14t build); depends on `anyio`, `openpyxl`,
 `types-openpyxl`, `cloudpickle` and `typing_extensions`.
@@ -37,7 +40,7 @@ async with aioopenpyxl.load_workbook("data.xlsx", read_only=True) as wb:  # read
     async for row in ws.iter_rows(values_only=True):
         ...
 
-wb = aioopenpyxl.Workbook()  # same signature as openpyxl.Workbook(write_only=..., iso_dates=...)
+wb = aioopenpyxl.Workbook()  # accepts openpyxl's write_only=... and iso_dates=... arguments
 ws = wb.active
 ws["A1"] = "header"  # in-memory: forwarded directly, no thread hop
 await ws.append_rows(rows)  # whole batch in one thread hop
@@ -57,6 +60,12 @@ Wrap an openpyxl workbook you already have with `aioopenpyxl.Workbook.wrap(exist
 `openpyxl.Workbook`, and a subclass can keep attributes of its own.
 
 ## Process execution
+
+| Mode | Choose it when | How to edit |
+| --- | --- | --- |
+| Default `Workbook()` / `load_workbook(...)` | You want the existing synchronous cell API and async I/O | Direct cell access or `run`; blocking operations use threads |
+| `process=True` | You want to keep one live workbook in a separate interpreter/GIL | All sheet/cell operations inside `await wb.run(fn)` |
+| `ProcessPool(max_workers=N)` | You want complete Excel jobs to share a bounded pool | An importable synchronous job creates/loads, edits and saves the workbook |
 
 Select a persistent child process with `Workbook(process=True)` or
 `load_workbook(..., process=True)`; keep cell/sheet operations inside the existing `run` API:
@@ -81,7 +90,7 @@ The workbook stays in one worker for its lifetime. Synchronous access such as `w
 `wb["Data"]` or `wb.wrapped` raises `BlockingCallError`: move it inside `run` so the event
 loop never waits synchronously for a process response. Captured values and results must be
 serializable; results are copies. `await wb.close()` / context exit joins the worker and
-ends the workbook's lifetime. See [process workbooks](docs/design.md#processtrue-workbooks).
+ends the workbook's lifetime. See [process workbooks](https://github.com/yamaaaaaa31/aioopenpyxl/blob/main/docs/design.md#processtrue-workbooks).
 
 ### Shared pool for complete jobs
 
@@ -90,11 +99,13 @@ share a fixed number of workers across complete jobs. `export` must be an import
 module-level synchronous function that creates/loads, edits and saves the workbook, with
 picklable arguments/results. At most `max_workers` jobs are admitted at once (default **1**).
 Running jobs finish before cancellation or shutdown completes. See
-[process pool jobs](docs/design.md#process-pool-jobs) for a complete FastAPI example and the
+[process pool jobs](https://github.com/yamaaaaaa31/aioopenpyxl/blob/main/docs/design.md#process-pool-jobs) for a complete FastAPI example and the
 `spawn` requirements (including a guarded `if __name__ == "__main__":` entry point for scripts
 using either process API). The default workbook mode continues to use threads.
 
 ## What runs where
+
+Rows without an explicit process option describe the default thread mode.
 
 | Operation | Where | Why |
 | --- | --- | --- |
@@ -110,12 +121,12 @@ using either process API). The default workbook mode continues to use threads.
 | `ws["A1"]`, `ws.cell()` on a **read-only** sheet | raises `BlockingCallError` | openpyxl would parse XML on the event loop; use `fetch` / `read_rows` / `run` |
 
 Keep `chunk_size` at 256 or more (each chunk is one thread round trip); for large exports use
-`Workbook(write_only=True)` with `append_rows`. The internals are explained in [docs/design.md](docs/design.md).
+`Workbook(write_only=True)` with `append_rows`. The internals are explained in [docs/design.md](https://github.com/yamaaaaaa31/aioopenpyxl/blob/main/docs/design.md).
 
-## Rules of the road
+## Rules of the road (default thread mode)
 
 - **A thread owns the workbook while an `await` is pending.** Synchronous access meanwhile
-  (`ws.cell(...)`, `wb.sheetnames`, even `repr(wb)`) raises `WorkbookBusyError`; await first or
+  (`ws.cell(...)`, `wb.sheetnames`) raises `WorkbookBusyError`; await first or
   move the work into `run(...)`.
 - **Inside a `prefetch>0` loop, never await the same workbook.** The loop holds the semaphore, so
   `await ws.run(...)` or a second `async for` from the body hangs rather than erroring. Use
@@ -145,11 +156,11 @@ Keep `chunk_size` at 256 or more (each chunk is one thread round trip); for larg
 | `ws["A1"]` on a read-only sheet | `BlockingCallError`; use `await ws.fetch("A1")` |
 | – | `await ws.read_rows(...)`, `await x.run(fn)`, `x.wrapped`, `limiter=` |
 
-Every other public member is forwarded with its typed openpyxl signature. `Workbook` and
-`AsyncWorksheet` are generic in the kind of worksheet (`Workbook()` is a `Workbook[Worksheet]`,
+In the default thread mode, every other public member is forwarded with its typed openpyxl
+signature. `Workbook` and `AsyncWorksheet` are generic in the kind of worksheet (`Workbook()` is a `Workbook[Worksheet]`,
 `load_workbook(..., read_only=True)` yields a `Workbook[ReadOnlyWorksheet]`), so `ws.run(fn)`
 accepts a callback written for the concrete openpyxl class. The full table and the typing,
-sub-module and subclass rules are in [docs/compatibility.md](docs/compatibility.md).
+sub-module and subclass rules are in [docs/compatibility.md](https://github.com/yamaaaaaa31/aioopenpyxl/blob/main/docs/compatibility.md).
 
 ## Development
 
@@ -160,7 +171,7 @@ uv run ty check src tests && uv run mypy
 uv run python tools/gen_proxies.py && uv run ruff format src/aioopenpyxl/   # after an openpyxl / stubs bump
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and [CHANGELOG.md](CHANGELOG.md) for history.
+See [CONTRIBUTING.md](https://github.com/yamaaaaaa31/aioopenpyxl/blob/main/CONTRIBUTING.md) for the workflow and [CHANGELOG.md](https://github.com/yamaaaaaa31/aioopenpyxl/blob/main/CHANGELOG.md) for history.
 
 ## Acknowledgements
 
@@ -172,4 +183,4 @@ the [types-openpyxl](https://pypi.org/project/types-openpyxl/) stubs maintained 
 
 ## License
 
-[MIT](LICENSE). openpyxl, typeshed and anyio remain under their own licenses.
+[MIT](https://github.com/yamaaaaaa31/aioopenpyxl/blob/main/LICENSE). openpyxl, typeshed and anyio remain under their own licenses.
