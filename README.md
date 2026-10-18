@@ -27,8 +27,8 @@ uv add aioopenpyxl   # or: pip install aioopenpyxl
 Process execution is available starting in **0.2.0**. Upgrade an existing installation with
 `uv add 'aioopenpyxl>=0.2.0'` or `pip install --upgrade aioopenpyxl`.
 
-Python 3.10 or newer (including the free-threaded 3.14t build); depends on `anyio`, `openpyxl`,
-`types-openpyxl`, `cloudpickle` and `typing_extensions`.
+Supports Python 3.10–3.15, including the free-threaded 3.14t and 3.15t builds; depends on
+`anyio`, `openpyxl`, `types-openpyxl`, `cloudpickle` and `typing_extensions`.
 
 ## Quick start
 

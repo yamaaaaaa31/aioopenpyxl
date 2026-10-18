@@ -11,8 +11,8 @@ safety.
 
 ## Development environment
 
-The project is managed with [uv](https://docs.astral.sh/uv/). Python 3.10 to 3.14 are
-supported; `.python-version` pins 3.14 for local development.
+The project is managed with [uv](https://docs.astral.sh/uv/). Python 3.10 to 3.15 are
+supported, including free-threaded 3.14t and 3.15t; `.python-version` pins 3.15 for local development.
 
 ```sh
 git clone https://github.com/yamaaaaaa31/aioopenpyxl.git
