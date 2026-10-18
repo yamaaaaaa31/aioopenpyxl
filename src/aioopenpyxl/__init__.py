@@ -16,11 +16,12 @@
 Built on anyio: works on asyncio and trio alike.
 
 :class:`Workbook` is a class (``AsyncWorkbook`` is a backwards-compatible
-alias), so it works in annotations and ``isinstance`` checks and has the same
-constructor signature as ``openpyxl.Workbook``; :meth:`Workbook.wrap` wraps an
-existing openpyxl workbook.  Every public openpyxl member is available on the
-wrappers.  Blocking calls (loading, saving, parsing rows of read-only sheets,
-spooling rows of write-only sheets, ``run(...)``) execute in a worker thread
+alias), so it works in annotations and ``isinstance`` checks and accepts
+openpyxl's constructor arguments plus execution options; :meth:`Workbook.wrap`
+wraps an existing openpyxl workbook. In the default thread mode, every public
+openpyxl member is available on the wrappers. Blocking calls (loading, saving,
+parsing rows of read-only sheets, spooling rows of write-only sheets,
+``run(...)``) execute in a worker thread
 and are serialised per workbook; while one is in flight, synchronous access
 raises :class:`WorkbookBusyError` instead of racing.
 
@@ -72,7 +73,7 @@ from ._workbook import AsyncWorkbook, Workbook
 from ._worksheet import DEFAULT_CHUNK_SIZE, AsyncChartsheet, AsyncWorksheet
 
 #: aioopenpyxl's own version (not openpyxl's).
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 #: Alias mirroring ``openpyxl.open``.
 open = load_workbook

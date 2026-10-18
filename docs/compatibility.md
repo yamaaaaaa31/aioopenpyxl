@@ -6,6 +6,9 @@ together, and every deliberate difference. The design rationale is in [design.md
 
 ## Every public member is forwarded
 
+This section describes the default thread mode (`process=False`). For the opt-in process
+mode introduced in 0.2.0, see [Upgrading from 0.1.x](#upgrading-from-01x).
+
 `Workbook` (alias `AsyncWorkbook`), `AsyncWorksheet` (covering `Worksheet`,
 `ReadOnlyWorksheet`, `WriteOnlyWorksheet`) and `AsyncChartsheet` expose **every public member**
 of their openpyxl counterparts with the original typed signatures. The forwarders are generated
@@ -21,13 +24,15 @@ Members returning sheets return wrappers (`wb.active`, `wb["Data"]`, `wb.create_
 
 ## The `Workbook` class and `wrap`
 
-`Workbook` is a real class with openpyxl's constructor signature
-(`Workbook(write_only=False, iso_dates=False, *, limiter=None)`), so annotations, `isinstance`
-checks and subclassing work as with `openpyxl.Workbook`. Construction is purely in-memory, so
-it is a plain call rather than a coroutine. Passing an existing openpyxl workbook to the
-constructor raises `TypeError` instead of silently creating an empty workbook; use
+`Workbook` is a real class with openpyxl's constructor arguments plus execution options
+(`Workbook(write_only=False, iso_dates=False, *, limiter=None, process=False)`), so annotations,
+`isinstance` checks and subclassing work as with `openpyxl.Workbook`. Default construction is
+purely in-memory. With `process=True`, construction is lazy and creates the raw workbook in a
+child at the first awaited operation/context entry. Both are plain calls. Passing an existing
+openpyxl workbook to the constructor raises `TypeError` instead of silently creating an empty workbook; use
 `Workbook.wrap(raw, limiter=...)`. `repr(wb)` is `<Workbook sheets=[...]>` (or
-`<Workbook busy>` while a thread owns it). `AsyncWorkbook` is kept as a backwards-compatible
+`<Workbook busy>` while a thread owns it, or `<Workbook process>` in process mode).
+`AsyncWorkbook` is kept as a backwards-compatible
 alias (`AsyncWorkbook is Workbook`).
 
 ## Module constants
@@ -104,8 +109,8 @@ objects without the busy check.
 
 ## Attributes on subclasses
 
-Subclassing a wrapper is supported, and a subclass may keep attributes of its own. An
-assignment `obj.name = value` is resolved in this order:
+In the default thread mode, subclassing a wrapper is supported, and a subclass may keep
+attributes of its own. An assignment `obj.name = value` is resolved in this order:
 
 1. Private names (`_x`) and anything defined on the wrapper's class, including slots, generated
    properties and class attributes of a subclass, are set on the wrapper itself. Generated
@@ -119,6 +124,25 @@ assignment `obj.name = value` is resolved in this order:
    `__dict__` (a subclass without `__slots__`), and forwarded to the raw object when it does not
    (the base wrappers only define slots), so unknown names can still be put on the openpyxl
    object.
+
+## Upgrading from 0.1.x
+
+0.2.0 keeps the default thread mode and its existing API. An ordinary dependency upgrade needs
+no call-site changes; the new `cloudpickle` runtime dependency is installed automatically.
+
+To opt into a persistent process, add `process=True` to `Workbook`, `load_workbook`,
+`load_workbook_bytes` or the top-level `open` alias. Keep `await wb.save(...)`,
+`await wb.to_bytes()`, `await wb.close()` and `async with` as before, and move synchronous
+sheet/cell/attribute operations into `await wb.run(fn)`. The callback receives the real
+synchronous openpyxl workbook; do not await inside it. Lambdas and local functions work when
+their captured values are serializable. Return values are copies; return plain data and keep
+all edits in the callback. `Workbook.wrap(raw)` remains a thread-mode wrapper.
+
+Unlike thread-mode `close()`, process-mode `close()` joins the worker and ends that workbook's
+lifetime; it cannot be used again. Each live process workbook owns one worker. Use the
+shared `ProcessPool` API for complete jobs when you need to bound the application's worker
+count. Both process APIs finish running work before cancellation returns, so an async timeout
+is not a hard execution deadline. See [design.md](design.md#processtrue-workbooks) for details.
 
 ## Differences, all deliberate
 

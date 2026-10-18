@@ -44,6 +44,8 @@ style used (real threads, real cancellation, both backends). The suite is organi
   stream clean-up;
 - `tests/test_cancellation.py`: anyio and native asyncio cancellation;
 - `tests/test_workbook.py` / `tests/test_worksheet.py`: the wrapper APIs;
+- `tests/test_process.py` / `tests/test_process_workbook.py`: real spawned workers, persistent
+  workbook state, process-pool admission, cancellation and resource cleanup;
 - `tests/test_compat.py`: full-surface coverage of openpyxl's public members, sub-module
   aliases and module constants; `tests/test_typing.py` holds static `assert_type` checks.
 
@@ -126,12 +128,23 @@ section for the released version into the GitHub Release notes, so keep it self-
 
 ## Releasing (maintainers)
 
-1. Move the `[Unreleased]` entries to a new `## [X.Y.Z] - YYYY-MM-DD` section and update the
-   comparison links at the bottom of `CHANGELOG.md`.
-2. Bump `version` in `pyproject.toml` and `__version__` in `src/aioopenpyxl/__init__.py`.
-3. Commit, tag `vX.Y.Z` and push the tag. `.github/workflows/release.yml` builds the sdist and
-   wheel, publishes them to PyPI via Trusted Publishing (the `pypi` environment) and creates a
-   GitHub Release whose body is that changelog section.
+1. Start a release branch from the latest `main`. Move the `[Unreleased]` entries to a new
+   `## [X.Y.Z] - YYYY-MM-DD` section and update the comparison links at the bottom of
+   `CHANGELOG.md`, keeping an empty `[Unreleased]` section for future changes.
+2. Bump `version` in `pyproject.toml` and `__version__` in `src/aioopenpyxl/__init__.py`, then
+   run `uv lock` to update the package metadata in the lockfile. Update any affected user docs.
+3. Run the tests, lint/type checks, generator and `uv build`. Check that wheel/sdist metadata
+   and the installed package report the same version. Run process smoke tests from a real
+   script with an `if __name__ == "__main__":` guard.
+4. Open a release PR, wait for the required `ci` check, and merge through the protected branch
+   workflow. Fetch the merged `main` and verify CI for that exact revision before tagging it.
+5. Tag the merged revision as `vX.Y.Z` and push the tag. `.github/workflows/release.yml` builds
+   the sdist and wheel, publishes them to PyPI via Trusted Publishing (the `pypi` environment)
+   and creates a GitHub Release whose body is that changelog section. If the deployment is
+   waiting for review, an authorized maintainer approves the `pypi` environment deployment.
+6. Verify the release workflow succeeded, the GitHub Release has both distribution files,
+   and the exact version is available/installable from PyPI. Confirm its metadata/version
+   and run a smoke test from that published distribution before announcing completion.
 
 ## Code of Conduct
 

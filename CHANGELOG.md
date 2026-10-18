@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-18
+
 ### Added
 
 - `Workbook(process=True)`, `load_workbook(..., process=True)` and
@@ -20,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   processes with independent interpreters/GILs, on asyncio and trio. Use `async with` and
   `await pool.run(func, *args, **kwargs)` with importable callables and picklable data.
   Admission is bounded; cancellation and shutdown wait for running jobs to finish.
+
+### Fixed
+
+- Process-mode load/save paths are resolved relative to the caller's working directory, even
+  when a callback changes the child's working directory.
+
+### Documentation
+
+- Explain the choice between default thread execution, persistent process workbooks and shared
+  process-pool jobs, including migration from 0.1.x, synchronous-access restrictions, serialized
+  return values, process ownership and cancellation behavior.
+- Use absolute documentation links in the README so they also work on PyPI.
 
 ## [0.1.1] - 2026-10-08
 
@@ -74,6 +88,7 @@ Initial release.
 - Subclasses of the wrappers can keep attributes of their own.
 - Supports CPython 3.10 to 3.14, including the free-threaded 3.14t build.
 
-[Unreleased]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/yamaaaaaa31/aioopenpyxl/releases/tag/v0.1.0
