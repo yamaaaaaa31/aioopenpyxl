@@ -1,6 +1,6 @@
 [project]
 name = "aioopenpyxl"
-version = "0.2.0"
+version = "0.2.1"
 description = "Asynchronous wrapper around openpyxl for asyncio and trio, built on anyio"
 readme = "README.md"
 license = "MIT"
@@ -23,6 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Programming Language :: Python :: Free Threading :: 3 - Stable",
     "Topic :: Office/Business :: Financial :: Spreadsheet",
     "Typing :: Typed",

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-18
+
+### Added
+
+- Support Python 3.15, including the free-threaded 3.15t build. CI now runs the full test
+  suite on both builds alongside the existing Python 3.10–3.14 and 3.14t coverage.
+
+### Changed
+
+- Use Python 3.15 for local development and update the documented support range and package
+  classifiers.
+
 ## [0.2.0] - 2026-10-18
 
 ### Added
@@ -88,7 +100,8 @@ Initial release.
 - Subclasses of the wrappers can keep attributes of their own.
 - Supports CPython 3.10 to 3.14, including the free-threaded 3.14t build.
 
-[Unreleased]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/yamaaaaaa31/aioopenpyxl/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/yamaaaaaa31/aioopenpyxl/releases/tag/v0.1.0
